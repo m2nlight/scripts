@@ -10,7 +10,7 @@ EOF
 
 read -r -d '' my_title <<-EOF
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-	|    autodeploy.sh v2020.1.17     |
+	|    autodeploy.sh v2020.1.19     |
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 EOF
 
@@ -19,13 +19,22 @@ read -r -d '' my_usage <<-EOF
 		bash $(basename "$0") [options]
 
 	Options
-		-h, --help         show helpful information
-		-c, --crontab      no output to tty
-		-r, --repo         a git repo local directory
-	                     for check remote repo update
-		-f, --find-commit  find COMMIT_ID in logfile
-		-m, --mail         use mailx command to send email when job finish
-		                   ex: --mail alice@domain.com,bob@domain.com
+		-h, --help            show helpful information
+		-c, --crontab         no output to tty
+		-r, --repo            a git repo local directory
+		                      for check remote repo update
+		-f, --find-commit     find COMMIT_ID in logfile
+
+		-m, --mail            use mailx command to send email when job finish
+		                      ex: --mail alice@domain.com,bob@domain.com
+		                      how to install mailx:
+		                      redhat: yum install mailx
+		                      debian: apt-get install mailutils
+		    --cc              copies to list of email addresses
+		-s, --subject         email subject
+		-a, --append-logfile  the logfile as email attachment
+		    --from            email from
+		    --test-mail       just test mail, no deloy
 EOF
 
 function show_usage() {
@@ -34,11 +43,25 @@ function show_usage() {
 		This is a bash script for call deploy.sh
 
 		You can run crontab -e to add a task like this:
-		*/1  *  *  *  * path/to/autodeploy.sh -c -r path/to/repo
+		*/1  *  *  *  * path/to/autodeploy.sh -c -r path/to/repo -m alice@domain.com --cc bob@domain.com -a
 		Let it can be automatic run every minute.
 		You can run crontab -l to view tasks.
-		If you have a mail, you can run
-		cat /var/mail/$USER to show your mail context.
+		If you have a mail, you can run follow command
+		cat /var/mail/$USER   # show your mail context.
+		mailq                 # show mail queue
+		sudo postsuper -d ID  # remove a mail from queue (postfix)
+		sudo postfix flush    # flush mails
+		vim ~/.mailrc         # edit mail config
+			set smtp-use-starttls
+			set ssl-verify=ignore
+			set smtp=smtp://smtp.gmail.com:587
+			set smtp-auth=login
+			set smtp-auth-user=YOURNAME@gmail.com
+			set smtp-auth-password="XXXX XXXX XXXX XXXX"
+			set from="YOURNAME <YOURNAME@gmail.com>"
+			set nss-config-dir=/etc/pki/nssdb
+		chmod 600 ~/.mailrc   # for security
+		sudo find / -name "cert*.db"  # find nss-config-dir
 
 		You must have named deploy.sh file in same path.
 		This script will call it and with a race condition
@@ -63,6 +86,11 @@ my_allow_logfile=1
 my_flag_crontab=0
 my_flag_repo=''
 my_flag_mail=''
+my_flag_cc=''
+my_flag_subject=''
+my_flag_from=''
+my_flag_appendlogfile=0
+my_flag_testmail=0
 until [ $# -eq 0 ]; do
 	case "$1" in
 	-h | --help)
@@ -84,10 +112,40 @@ until [ $# -eq 0 ]; do
 	-m | --mail)
 		shift
 		if [ -z "$1" ]; then
-			echo 'ERROR: --mail argument error, need some email address'
+			echo 'ERROR: --mail argument error, need some email addresses'
 			exit 1
 		fi
 		my_flag_mail="$1"
+		;;
+	--cc)
+		shift
+		if [ -z "$1" ]; then
+			echo 'ERROR: --cc argument error, need some email addresses'
+			exit 1
+		fi
+		my_flag_cc="$1"
+		;;
+	-s,--subject)
+		shift
+		if [ -z "$1" ]; then
+			echo 'ERROR: --subject argument error, need email subject'
+			exit 1
+		fi
+		my_flag_subject="$1"
+		;;
+	-a | --append-logfile)
+		my_flag_appendlogfile=1
+		;;
+	--from)
+		shift
+		if [ -z "$1" ]; then
+			echo 'ERROR: --from argument error, need email from string'
+			exit 1
+		fi
+		my_flag_from="$1"
+		;;
+	--test-mail)
+		my_flag_testmail=1
 		;;
 	-f | --find-commit)
 		shift
@@ -153,12 +211,46 @@ function log_title() {
 
 function send_mail() {
 	[ -z "$my_flag_mail" ] && return 0
-	command -v mailx || return 0
-	echo "$*" | mailx -s 'autodeploy result' "$my_flag_mail"
+	command -v mailx &>/dev/null || return 0
+
+	local -a my_mail_args
+	if [ $my_flag_testmail -eq 1 ]; then
+		my_mail_args+=(-v)
+	fi
+
+	if [ -z "$my_flag_subject" ]; then
+		my_flag_subject="autodeploy result @$(curtime)"
+	fi
+	my_mail_args+=(-s "$my_flag_subject")
+
+	if [ ! -z "$my_flag_cc" ]; then
+		my_mail_args+=(-c "$my_flag_cc")
+	fi
+
+	if [ -z "$my_flag_from" ] && [ -f "$HOME/.mailrc" ]; then
+		local my_email="$(grep -o -m1 '[[:alnum:]]\+@[[:alnum:]]\+' "$HOME/.mailrc")"
+		if [ ! -z "$my_email" ]; then
+			my_flag_from="AutoDeploy <$my_email>"
+		fi
+	fi
+	if [ ! -z "$my_flag_from" ]; then
+		my_mail_args+=(-r "$my_flag_from")
+	fi
+
+	if [ $my_flag_appendlogfile -eq 1 ]; then
+		my_mail_args+=(-a "$my_log")
+	fi
+
+	my_mail_args+=("$my_flag_mail")
+	echo "$*" | do_cmd mailx "${my_mail_args[@]}"
 }
 
 # deploy code in this function
 function deploy() {
+	if [ $my_flag_testmail -eq 1 ]; then
+		send_mail "test mail"
+		exit 0
+	fi
 	# goto the autodeploy directory
 	local my_deploy='deploy.sh'
 	pushd "$my_source_dir" &>/dev/null
@@ -190,7 +282,9 @@ function deploy() {
 
 			local my_git_commit_short="$(git rev-parse --short $my_git_fetch_commit)"
 			my_allow_logfile=1
-			my_log="${my_log%.*}.${my_git_commit_short}.log"
+			if [ ! -z "$my_git_commit_short" ]; then
+				my_log="${my_log%.*}.${my_git_commit_short}.log"
+			fi
 			log_title
 			log -e "REPO: $my_flag_repo\nRemote: $(git remote -v)\nRemote branch: $my_git_remotebranch\nFETCH_HEAD: $my_git_fetch_commit\nHEAD: $my_git_commit\n"
 			log "git clean..."
