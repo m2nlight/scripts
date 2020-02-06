@@ -10,7 +10,7 @@ EOF
 
 read -r -d '' my_title <<-EOF
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-	|    autodeploy.sh v2020.1.19     |
+	|    autodeploy.sh v2020.2.6      |
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 EOF
 
@@ -35,6 +35,9 @@ read -r -d '' my_usage <<-EOF
 		-a, --append-logfile  the logfile as email attachment
 		    --from            email from
 		    --test-mail       just test mail, no deloy
+
+		-l, --lock            an unique lockfile for race condition
+		                      default: /var/tmp/autodeploy.sh.lock
 EOF
 
 function show_usage() {
@@ -67,6 +70,7 @@ function show_usage() {
 		This script will call it and with a race condition
 		by /var/tmp/autodeploy.sh.lock file, run
 		cat /var/tmp/autodeploy.sh.lock to view the PID.
+		You can use your lockfile like: --lock path/to/yourlockfile
 
 		A git repo local directory is optional.
 		It will be check for whether create the log file.
@@ -155,6 +159,14 @@ until [ $# -eq 0 ]; do
 		fi
 		grep -oP -m1 '(?<=COMMIT_ID: ).*' "$1"
 		exit 0
+		;;
+	-l | --lock)
+		shift
+		if [ -z "$1" ]; then
+			echo 'ERROR: --lock argument error, need a filename'
+			exit 1
+		fi
+		my_lockfile="$1"
 		;;
 	*)
 		echo -e "ERROR: arguments error\nplease run \"bash ${0##*/} --help\" to get usage"
@@ -274,6 +286,11 @@ function deploy() {
 			local my_git_commit="$(git rev-parse HEAD)"
 			do_cmd git fetch $my_git_remote $my_git_rb
 			local my_git_fetch_commit="$(git rev-parse FETCH_HEAD)"
+			if [ $? -ne 0 ]; then
+				# fatal: ambiguous argument 'FETCH_HEAD': unknown revision or path not in the working tree.
+				log "ERROR: GIT FETCH ERROR. COMMIT_ID: $(git rev-parse --short HEAD)"
+				exit 2
+			fi
 			if [ "$my_git_commit" == "$my_git_fetch_commit" ]; then
 				# note: 'COMMIT_ID: ' is a keyword for call with --find-commit
 				log "No update, COMMIT_ID: $(git rev-parse --short HEAD)"
