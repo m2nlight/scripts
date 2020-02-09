@@ -10,7 +10,7 @@ EOF
 
 read -r -d '' my_title <<-EOF
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-	|    autodeploy.sh v2020.2.6      |
+	|    autodeploy.sh v2020.2.9      |
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 EOF
 
@@ -38,6 +38,7 @@ read -r -d '' my_usage <<-EOF
 
 		-l, --lock            an unique lockfile for race condition
 		                      default: /var/tmp/autodeploy.sh.lock
+		    --now             call deploy.sh immediately
 EOF
 
 function show_usage() {
@@ -95,6 +96,7 @@ my_flag_subject=''
 my_flag_from=''
 my_flag_appendlogfile=0
 my_flag_testmail=0
+my_flat_now=0
 until [ $# -eq 0 ]; do
 	case "$1" in
 	-h | --help)
@@ -167,6 +169,9 @@ until [ $# -eq 0 ]; do
 			exit 1
 		fi
 		my_lockfile="$1"
+		;;
+	--now)
+		my_flat_now=1
 		;;
 	*)
 		echo -e "ERROR: arguments error\nplease run \"bash ${0##*/} --help\" to get usage"
@@ -287,11 +292,14 @@ function deploy() {
 			do_cmd git fetch $my_git_remote $my_git_rb
 			local my_git_fetch_commit="$(git rev-parse FETCH_HEAD)"
 			if [ $? -ne 0 ]; then
-				# fatal: ambiguous argument 'FETCH_HEAD': unknown revision or path not in the working tree.
-				log "ERROR: GIT FETCH ERROR. COMMIT_ID: $(git rev-parse --short HEAD)"
-				exit 2
+				if [ $my_flat_now -eq 0 ]; then
+					# fatal: ambiguous argument 'FETCH_HEAD': unknown revision or path not in the working tree.
+					log "ERROR: GIT FETCH ERROR. COMMIT_ID: $(git rev-parse --short HEAD)"
+					exit 2
+				fi
+				my_git_fetch_commit="$my_git_commit"
 			fi
-			if [ "$my_git_commit" == "$my_git_fetch_commit" ]; then
+			if [ $my_flat_now -eq 0 ] && [ "$my_git_commit" == "$my_git_fetch_commit" ]; then
 				# note: 'COMMIT_ID: ' is a keyword for call with --find-commit
 				log "No update, COMMIT_ID: $(git rev-parse --short HEAD)"
 				exit 0
@@ -314,6 +322,7 @@ function deploy() {
 		popd &>/dev/null
 	fi
 	# call deploy.sh
+	log "Call $my_deploy ..."
 	local my_deploy_start=$(date +%s)
 	set -e
 	do_cmd sh "$my_deploy"
