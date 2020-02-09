@@ -191,7 +191,7 @@ function do_cmd() {
 	if [ $my_flag_crontab -eq 0 ]; then
 		if [ $my_allow_logfile -ne 0 ]; then
 			# output to tty and logfile
-			"$@" | tee -a "$my_log"
+			"$@" | tee -ai "$my_log"
 			my_ret=$?
 		else
 			# output to tty only
