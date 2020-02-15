@@ -10,7 +10,7 @@ EOF
 
 read -r -d '' my_title <<-EOF
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-	|    autodeploy.sh v2020.2.9      |
+	|    autodeploy.sh v2020.2.15     |
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 EOF
 
@@ -291,7 +291,7 @@ function deploy() {
 			local my_git_commit="$(git rev-parse HEAD)"
 			do_cmd git fetch $my_git_remote $my_git_rb
 			local my_git_fetch_commit="$(git rev-parse FETCH_HEAD)"
-			if [ $? -ne 0 ]; then
+			if [ $? -ne 0 ] || [ "$my_git_fetch_commit"=="FETCH_HEAD" ]; then
 				if [ $my_flat_now -eq 0 ]; then
 					# fatal: ambiguous argument 'FETCH_HEAD': unknown revision or path not in the working tree.
 					log "ERROR: GIT FETCH ERROR. COMMIT_ID: $(git rev-parse --short HEAD)"
