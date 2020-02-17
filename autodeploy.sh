@@ -10,7 +10,7 @@ EOF
 
 read -r -d '' my_title <<-EOF
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-	|    autodeploy.sh v2020.2.15     |
+	|    autodeploy.sh v2020.2.17     |
 	=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 EOF
 
@@ -88,6 +88,7 @@ my_source_dir="$(dirname "${BASH_SOURCE[0]}")"
 my_lockfile='/var/tmp/autodeploy.sh.lock'
 my_log="${my_source_dir}/autodeploy.log"
 my_allow_logfile=1
+my_exec_flag=0
 my_flag_crontab=0
 my_flag_repo=''
 my_flag_mail=''
@@ -191,7 +192,11 @@ function do_cmd() {
 	if [ $my_flag_crontab -eq 0 ]; then
 		if [ $my_allow_logfile -ne 0 ]; then
 			# output to tty and logfile
-			"$@" | tee -ai "$my_log"
+			if [ $my_exec_flag -eq 0 ]; then
+				my_exec_flag=1
+				exec 1> >(tee -a "$my_log") 2>&1
+			fi
+			"$@"
 			my_ret=$?
 		else
 			# output to tty only
@@ -291,7 +296,7 @@ function deploy() {
 			local my_git_commit="$(git rev-parse HEAD)"
 			do_cmd git fetch $my_git_remote $my_git_rb
 			local my_git_fetch_commit="$(git rev-parse FETCH_HEAD)"
-			if [ $? -ne 0 ] || [ "$my_git_fetch_commit"=="FETCH_HEAD" ]; then
+			if [ $? -ne 0 ] || [ "$my_git_fetch_commit" == 'FETCH_HEAD' ]; then
 				if [ $my_flat_now -eq 0 ]; then
 					# fatal: ambiguous argument 'FETCH_HEAD': unknown revision or path not in the working tree.
 					log "ERROR: GIT FETCH ERROR. COMMIT_ID: $(git rev-parse --short HEAD)"
@@ -324,7 +329,6 @@ function deploy() {
 	# call deploy.sh
 	log "Call $my_deploy ..."
 	local my_deploy_start=$(date +%s)
-	set -e
 	do_cmd sh "$my_deploy"
 	local my_ret=$?
 	local my_deploy_cost=$(($(date +%s) - $my_deploy_start))
@@ -336,7 +340,6 @@ function deploy() {
 	fi
 	log $result
 	send_mail "$result  LOGFILE: $my_log"
-	set +e
 	popd &>/dev/null
 }
 
